@@ -1,0 +1,1 @@
+/usr/bin/cc CMakeFiles/neutrino.dir/main.c.o -o neutrino 
