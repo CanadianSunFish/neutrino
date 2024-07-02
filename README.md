@@ -17,5 +17,5 @@ Again computational time will be a large issue.
 Seems valuable to discuss as it has been mentioned many times already. Finding ways to reduce the training time while trying to optimize the model will be necessary. This can by done through a few techniques. Note: These are only the first that come to mind.
 - Saving model architectures in a state of half-accuracy, then loading these models later when using the same architecture but different hyperparameters
   - Larger models can be run for 1 epoch with new hyperparameters and evaluated immediatly
--  Utilizing well know tuning packages through keras, scikit-learn, pytorch, or others
+- Utilizing well know tuning packages through keras, scikit-learn, pytorch, or others
   - Larger teams who have stronger background in computer science will notable have better code
