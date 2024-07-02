@@ -18,4 +18,4 @@ Seems valuable to discuss as it has been mentioned many times already. Finding w
 - Saving model architectures in a state of half-accuracy, then loading these models later when using the same architecture but different hyperparameters
   - Larger models can be run for 1 epoch with new hyperparameters and evaluated immediatly
 - Utilizing well know tuning packages through keras, scikit-learn, pytorch, or others
-  - Larger teams who have stronger background in computer science will notable have better code
+  - Larger teams who have stronger backgrounds in computer science will have much better code
