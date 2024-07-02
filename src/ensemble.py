@@ -14,30 +14,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 
 
-class DataAnalysis():
-
-    def __init__(self, data, save):
-        self.data = data
-        self.save = save
-
-    def get_correlation(self):
-
-        fig = plt.figure(figsize=(10, 8))
-        ax = plt.axes()
-        ax.set_facecolor('#faf0e6')
-        fig.patch.set_facecolor('#faf0e6')
-        cor = self.data.corr()
-        sns.heatmap(cor, annot=True, cmap="Reds")
-        if self.save:
-            plt.savefig('data/fig/correlation_map.png')
-        plt.show()
-        plt.clf()
-
-        sns.pairplot(self.data, kind='reg')
-        plt.show()
-
-
-class NeuralNetwork():
+class EnsembleNeuralNetwork():
 
     def __init__(
         self,
@@ -64,7 +41,7 @@ class NeuralNetwork():
             'save_fig'      : False,
             'scaler'        : StandardScaler(),
             'show'          : True,
-            'txt_title'     : 'Non-Ensemble Model'
+            'txt_title'     : 'Ensemble Model'
         }
 
         if args is not None:
@@ -78,25 +55,14 @@ class NeuralNetwork():
         self.neurons = neurons
         self.activations = activations
         self.title = title
+        self.callbacks=[]
 
-        X = self.args['scaler'].fit_transform(np.array(features))
-        y = truth 
+        features = self.args['scaler'].fit_transform(features)
 
-        self.X_train, self.X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
-
-        self.true_e  = np.array(y_test['Energy'])
-
-        y_train = np.array(y_train.drop(['Energy'], axis=1))
-        self.y_train = np.array([i[0] for i in y_train])
-        
-        y_test = np.array(y_test.drop(['Energy'], axis=1))
-        self.y_test = np.array([i[0] for i in y_test])
-
-        self.callbacks = []
-        self.is_built = False
+        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(features, truth, test_size=0.2, random_state=42)
 
         if self.args['save_fig']:
-            directory = '/home/bread/Documents/projects/neutrino/data/figures/review/figures'
+            directory = '/home/bread/Documents/projects/neutrino/data/fig/plots'
             pathdir = pathlib.Path(directory)
             labels = []
 
@@ -104,7 +70,7 @@ class NeuralNetwork():
                 labels.append(int(str(path).split('/')[-1]))
 
             new_dir = f"{max(labels)+1}"
-            parent_dir = "/home/bread/Documents/projects/neutrino/data/figures/review/figures/"
+            parent_dir = "/home/bread/Documents/projects/neutrino/data/fig/plots/"
 
             self.path = os.path.join(parent_dir, new_dir)
 
@@ -152,8 +118,9 @@ Model Params:
         else:
             opt = self.args['optimizer']
 
+
         if self.args['load']:
-            self.model_cascade = keras.saving.load_model('src/models/model.keras')
+            self.model_cascade = keras.saving.load_model('src/models/model_cascade.keras')
 
         else:
             model = keras.Sequential()
@@ -170,9 +137,36 @@ Model Params:
                     )
                 )
 
-            self.model = model
+            self.model_cascade = model
         
-        self.model.compile(
+        
+        self.model_cascade.compile(
+            optimizer=opt,
+            loss=[self.args['loss']],
+            metrics=[self.args['metrics']]
+        )
+        
+        if self.args['load']:
+            self.model_energy = keras.saving.load_model('src/models/model_energy.keras')
+
+        else:
+            model = keras.Sequential()
+
+            model.add(keras.Input(shape=np.shape(self.X_train[0]), name='Input'))
+
+            for i in range(len(self.neurons)):
+
+                model.add(
+                    layers.Dense(
+                        self.neurons[i], 
+                        activation=self.activations[i], 
+                        name=f"Layer{i}"
+                    )
+                )
+
+            self.model_energy = model
+        
+        self.model_energy.compile(
             optimizer=opt,
             loss=[self.args['loss']],
             metrics=[self.args['metrics']]
@@ -180,11 +174,11 @@ Model Params:
 
         self.is_built = True
 
-    def train(self):
+    def train_cascade(self):
         
-        self.history = self.model.fit(
+        self.history_cascade = self.model_cascade.fit(
             self.X_train,
-            self.y_train,
+            self.y_train['Cascade'],
             validation_split=0.20,
             epochs=self.args['epochs'],
             batch_size=self.args['batch'],
@@ -193,25 +187,58 @@ Model Params:
         )
 
         if self.args['save']:
-            self.model.save(
-                'src/models/model.keras', 
+            self.model_cascade.save(
+                'src/models/model_cascade.keras', 
+                overwrite=self.args['overwrite']
+            )
+        
+        if self.args['save_fig']:
+            self.model_cascade.save(
+                f'{self.path}/model_cascade.keras'
+            )
+
+        self.min_cascade = min(self.history_cascade.history['val_mae'])
+
+        return self.min_cascade
+
+    def train_energy(self):
+
+        self.history_energy = self.model_energy.fit(
+            self.X_train,
+            self.y_train['Energy'],
+            validation_split=0.20,
+            epochs=self.args['epochs'],
+            batch_size=self.args['batch'],
+            verbose=2,
+            callbacks=self.callbacks
+        )
+        
+        if self.args['save']:
+            model.save(
+                'src/models/model_energy.keras', 
                 overwrite=self.args['overwrite']
             )
 
         if self.args['save_fig']:
-            self.model.save(
-                f'{self.path}/model.keras'
+            self.model_energy.save(
+                f'{self.path}/model_energy.keras'
             )
 
-        self.min_mae = min(self.history.history['val_mae'])
+        self.min_energy = min(self.history_energy.history['val_mae'])
 
-        return self.min_mae
+        return self.min_energy
 
     def test(self):
 
-        prediction = self.model.predict(self.X_test)
+        pred_energy = self.model_energy.predict(self.X_test)
+        pred_cascade = self.model_cascade.predict(self.X_test)
 
-        self.prediction = [i[0] for i in prediction]
+        pred_energy = np.array([i[0] for i in pred_energy])
+        pred_cascade = np.array([i[0] for i in pred_cascade])
+            
+        prediction = pred_cascade/pred_energy
+
+        self.prediction = [i if i <= 1 else 1 for i in prediction]
 
         if self.args['save_fig']:
             epochs = self.args['epochs']
@@ -221,38 +248,38 @@ Model Params:
 
             with open(f'{self.path}/model.txt', 'w') as f:
                 title = self.args['txt_title']
-                f.write(f'{title}\nmin mae, neurons, activations, epochs, batch, opt, lr\n{self.min_mae}\n{self.neurons}\n{self.activations}\n{epochs}\n{batch}\n{opt}\n{lr}')
+                f.write(f'{title}\nmin energy, min cascade, neurons, activations, epochs, batch, opt, lr\n{self.min_energy}\n{self.min_cascade}\n{self.neurons}\n{self.activations}\n{epochs}\n{batch}\n{opt}\n{lr}')
 
     def eval(self):
         pass
 
     def plot(self):
 
-        plot_loss(self.history.history, self.path, self.title, self.args['loss'], self.args['save_fig'], self.args['show'])
-
-        # fig = plt.figure()
-        # ax = fig.add_subplot(1, 1, 1)
-        # plt.plot(self.history.history['mae'])
-        # plt.plot(self.history.history['val_mae'])
-        # if self.args['log']:
-        #     ax.set_yscale('log')
-        # ax.xaxis.set_minor_locator(AutoMinorLocator())
-        # plt.title(f'Neural Network Mean Absolute Error - Training For {self.title}')
-        # plt.ylabel('Mean Absolute Error')
-        # plt.xlabel('Epoch')
-        # plt.legend(['train', 'test'], loc='upper left')
-        # if self.args['save_fig']:
-        #     plt.savefig(f'{self.path}/nn_mae_history.png')
-        # if self.args['show']:
-        #     plt.show()
-        # plt.close()
-
-        reconstructed_hist_2d(self.y_test, self.prediction, self.path, self.title, self.args['save_fig'], self.args['show'])
+        fig = plt.figure()
+        ax = fig.add_subplot(1, 1, 1)
+        plt.plot(self.history_energy.history['mae'])
+        plt.plot(self.history_energy.history['val_mae'])
+        ax.grid('on', alpha=0.1)
+        if self.args['log']:
+            ax.set_yscale('log')
+        ax.xaxis.set_minor_locator(AutoMinorLocator())
+        plt.title(f'Neural Network Mean Absolute Error - Training For {self.title}')
+        plt.ylabel('Mean Absolute Error')
+        plt.xlabel('Epoch')
+        plt.legend(['train', 'test'], loc='upper left')
+        if self.args['save_fig']:
+            plt.savefig(f'{self.path}/nn_mae_history.png')
+        if self.args['show']:
+            plt.show()
+        plt.clf()
         
-        plt.hist2d(self.y_test, self.prediction, bins=30)
+        print(len(self.y_test['Inelasticity']))
+        print(len(self.prediction))
+
+        plt.hist2d(self.y_test['Inelasticity'], self.prediction, bins=30)
         plt.xlabel(f'True {self.title}')
         plt.ylabel(f'Predicted {self.title}')
-        plt.title(f'Using Neural Network to Predict Neutrino {self.title} - 2d Histogram')
+        plt.title(f'Using Neural Network to Predict Low Energy\n Neutrino {self.title} - 2d Histogram')
         plt.xlim([0,1])
         plt.ylim([0,1])  
         if self.args['save_fig']:
@@ -261,64 +288,21 @@ Model Params:
             plt.show()
         plt.clf()
 
-        plt.hist(self.y_test, bins=50, label=f'True {self.title}', alpha=0.6, color='olive')
-        plt.hist(self.prediction, bins=50, label=f'Predicted {self.title}', alpha=0.6, color='deepskyblue')
-        plt.title(f"Using Neural Network to Predict Neutrino {self.title} - 1d Histogram")
+        fig, ax = plt.subplots(figsize=(7, 5))
+        ax.hist(self.y_test['Inelasticity'], bins=200, label=f'True {self.title}', alpha=0.6, color='olive')
+        ax.hist(self.prediction, bins=200, label=f'Predicted {self.title}', alpha=0.6, color='deepskyblue')
+        ax.set_title(f"Using Neural Network to Predict Low Energy\n Neutrino {self.title} - 1d Histogram")
+        ax.set_xlabel(f'{self.title} Range')
+        ax.set_ylabel('Count')
+        ax.grid('on', alpha=0.2, linestyle='-')
         plt.legend()
         if self.args['save_fig']:
             plt.savefig(f'{self.path}/nn_{self.title}_1d.png')
         if self.args['show']:
             plt.show()
-        plt.close()
+        plt.clf()
 
-        error = np.array(self.prediction) - np.array(self.y_test)
-
-        plt.hist2d(self.true_e, error, bins=30)
-        plt.xlabel(f'True {self.title} Energy')
-        plt.ylabel(f'Model Error')
-        plt.title(f'True Neutrino Energy vs {self.title} Error')
-        plt.xlim([0,3])
-        if self.args['save_fig']:
-            plt.savefig(f'{self.path}/true_e_vs_{self.title}_error.png')
-        if self.args['show']:
-            plt.show()
-        plt.close()
-
-        true_e_cut = []
-        prediction_cut = []
-
-        for i in range(len(self.true_e)):
-            if self.prediction[i] > 0.4 and self.prediction[i] < 0.6:
-                true_e_cut.append(self.true_e[i])
-                prediction_cut.append(self.prediction[i])
-
-        fig = plt.figure(figsize=(7, 5))
-        ax = fig.add_subplot(1, 1, 1)
-        ax.hist(true_e_cut, bins=50, label=f'True Energy', alpha=0.6, color='olive')
-        ax.hist(prediction_cut, bins=50, label=f'Reconstructed Inelasticity (0.4, 0.6)', alpha=0.6, color='deepskyblue')
-        ax.set_title(f"Reconstructed Inelasticity Cut in Range (0.4, 0.6)\n And Associated Energy Values - Histogram")
-        ax.grid('on', alpha=0.2, linestyle='-')
-        plt.legend()
-        if self.args['save_fig']:
-            plt.savefig(f'{self.path}/nn_{self.title}_true_energy_cut_1d.png')
-        if self.args['show']:
-            plt.show()
-        plt.close()
-
-        fig = plt.figure(figsize=(7, 5))
-        ax = fig.add_subplot(1, 1, 1)
-        ax.hist2d(true_e_cut, prediction_cut, bins=30)
-        ax.set_ylabel("Reconstructed Inelasticity Cut")
-        ax.set_xlabel("Associated True Energy")
-        ax.set_title(f"Reconstructed Inelasticity Cut in Range (0.4, 0.6)\n And Associated Energy Values - 2d Histogram")
-        ax.grid('on', alpha=0.2, linestyle='-')
-        if self.args['save_fig']:
-            plt.savefig(f'{self.path}/nn_{self.title}_true_energy_cut_2d.png')
-        if self.args['show']:
-            plt.show()
-        plt.close()
-
-        truth = np.array(self.y_test)
+        truth = np.array(self.y_test['Inelasticity'])
 
         prediction_norm = []
         truth_norm = []
@@ -336,10 +320,9 @@ Model Params:
             plt.savefig(f'{self.path}/nn_{self.title}_high_values_2d.png')
         if self.args['show']:
             plt.show()
-        plt.close()
+        plt.clf()
 
-        fig = plt.figure(figsize=(7, 5))
-        ax = fig.add_subplot(1, 1, 1)
+        fig, ax = plt.subplots(figsize=(7, 5))
         ax.hist(truth_norm, bins=200, label=f'True {self.title}', alpha=0.6, color='olive')
         ax.hist(prediction_norm, bins=200, label=f'Predicted {self.title}', alpha=0.6, color='deepskyblue')
         ax.set_title(f"Using Neural Network to Predict Low Energy\n Neutrino {self.title} - 1d Histogram")
@@ -351,7 +334,7 @@ Model Params:
             plt.savefig(f'{self.path}/nn_{self.title}_high_values_1d.png')
         if self.args['show']:
             plt.show()
-        plt.close()
+        plt.clf()
 
         prediction_norm = []
         truth_norm = []
@@ -369,7 +352,7 @@ Model Params:
             plt.savefig(f'{self.path}/nn_{self.title}_low_values_2d.png')
         if self.args['show']:
             plt.show()
-        plt.close()
+        plt.clf()
 
         fig, ax = plt.subplots(figsize=(7, 5))
         ax.hist(truth_norm, bins=200, label=f'True {self.title}', alpha=0.6, color='olive')
@@ -383,7 +366,7 @@ Model Params:
             plt.savefig(f'{self.path}/nn_{self.title}_low_values_1d.png')
         if self.args['show']:
             plt.show()
-        plt.close()
+        plt.clf()
         
         prediction_norm = []
         truth_norm = []
@@ -401,7 +384,7 @@ Model Params:
             plt.savefig(f'{self.path}/nn_{self.title}_middle_values_2d.png')
         if self.args['show']:
             plt.show()
-        plt.close()
+        plt.clf()
 
         fig, ax = plt.subplots(figsize=(7, 5))
         ax.hist(truth_norm, bins=200, label=f'True {self.title}', alpha=0.6, color='olive')
@@ -415,15 +398,17 @@ Model Params:
             plt.savefig(f'{self.path}/nn_{self.title}_middle_values_1d.png')
         if self.args['show']:
             plt.show()
-        plt.close()
+        plt.clf()
         
-
         return
-
+    
 
 if __name__ == "__main__":
 
+    ensemble =  False
+    neural = True
     feature = True
+    analysis = False
 
     title = 'Non-Ensemble Model With Added Features (ZenithCos, ZenithSin, Distance, DistanceCos, TrackArcCos, TrackTimeCosh, TrackTime)'
 
@@ -448,7 +433,10 @@ if __name__ == "__main__":
         df['TrackTimeCosh'] = np.cosh(df['Track'] / df['Time'])
         df['TrackTime'] = np.cos(df['Track'] * np.cos(df['Time']))
 
-    y = df[['Inelasticity', 'Energy']]
+    if ensemble:
+        y = df[['Inelasticity', 'Cascade', 'Energy']]
+    else:
+        y = df[['Inelasticity', 'Energy']]
 
     # X = df.drop(['Inelasticity', 'Energy', 'Cascade', 'Zenith', 'X', 'Y', 'Z', 'Azimuth', 'Flavor', 'Charge'], axis=1)
     X = np.array(df.drop(['Inelasticity', 'Energy', 'Cascade'], axis=1))
@@ -459,6 +447,10 @@ if __name__ == "__main__":
         [2056, 1028, 256, 256, 128, 64, 32, 16, 8, 4, 1],
         [5012, 2056, 1028, 256, 256, 128, 64, 32, 16, 8, 4, 1],
         [2056, 2056, 1028, 256, 256, 128, 64, 32, 16, 8, 4, 1],
+        # [5112, 2056, 1028, 256, 256, 128, 64, 32, 16, 8, 4, 1],
+        # [5112, 2056, 1028, 256, 256, 128, 64, 32, 16, 8, 4, 1],
+        [128, 128, 128, 128, 64, 32, 16, 8, 4, 1],
+        [128, 128, 128, 128, 64, 32, 16, 8, 4, 1],
     ]
 
     activations = [
@@ -466,27 +458,44 @@ if __name__ == "__main__":
         ['relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'sigmoid'],
         ['relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'sigmoid'],
         ['relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'sigmoid'],
+        # ['tanh', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'linear'],
+        # ['relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'linear'],
+        ['relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'linear'],
+        ['relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'relu', 'linear'],
     ]
 
-    model = NeuralNetwork(
-                X, 
-                y,
-                neurons[3],
-                activations[3],
-                'Inelasticity',
-                args={
-                    'epochs'    : 45,
-                    'save_fig'  : True,
-                    'show'      : False,
-                    'show'      : True,
-                    'txt_title' : title
-                }
-            )
 
-    model.build()
+    assert len(activations) == len(neurons), "neurons and activations don't have the same number of layers"
 
-    model.train()
+    for i in range(len(neurons)):
+        assert len(activations[i]) == len(neurons[i]), f"layer {i} doesn't have the same number of neural layers and activation functions"
 
-    model.test()
+    for i in range(len(neurons)):
 
-    model.plot()
+        model = EnsembleNeuralNetwork(
+            X, 
+            y,
+            neurons[i],
+            activations[i],
+            'Inelasticity',
+            args={
+                'epochs'    : 100,
+                'save_fig'  : True,
+                'show'      : False,
+                'title'     : title
+            }
+        )
+
+        model.build()
+
+        while True:
+            model.train_cascade()
+            model.train_inelasticity()
+
+            if model.min_inelasticity < 0.20:
+                break
+
+
+        model.test()
+
+        model.plot()

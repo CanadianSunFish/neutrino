@@ -1,11 +1,8 @@
 import h5py
-# import keras
 import sqlite3
 import numpy as np
 import pandas as pd
 
-
-# from keras import layers
 from joblib import Memory
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -57,7 +54,9 @@ def build_files(directory, header, data) -> pd.DataFrame:
 
     for path in pathdir.iterdir():
 
-        if str(path) == '/home/bread/Documents/projects/neutrino/data/hdf5/.gitignore':
+        print(path)
+
+        if str(path) == '/home/bread/Documents/projects/neutrino/data/archive/.gitignore':
             continue
 
         with h5py.File(path, 'r') as hdf:
@@ -204,6 +203,9 @@ class PulseDataProcessing():
 
 
     def get_model(self):
+
+        import keras
+        from keras import layers
 
         shape = self.pulse_shape + (1,)
 

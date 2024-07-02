@@ -1,3 +1,0 @@
-/home/bread/Documents/projects/neutrino/src/c/build/CMakeFiles/neutrino.dir
-/home/bread/Documents/projects/neutrino/src/c/build/CMakeFiles/edit_cache.dir
-/home/bread/Documents/projects/neutrino/src/c/build/CMakeFiles/rebuild_cache.dir
